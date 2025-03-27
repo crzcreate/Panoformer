@@ -683,8 +683,8 @@ class Panoformer(nn.Module):
         y=depth1*item_rate+depth2*(1-item_rate)
         outputs = {}
         outputs["pred_depth"] = y
-        outputs["bon"]=bon
-        outputs["cor"]=cor
+        #outputs["bon"]=bon
+        #outputs["cor"]=cor
         return outputs
 
 class ConvCompressH(nn.Module):
