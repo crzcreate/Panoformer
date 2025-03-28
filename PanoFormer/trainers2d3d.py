@@ -6,6 +6,8 @@ import time
 import json
 import tqdm
 
+import cv2
+
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -31,7 +33,6 @@ def gradient(x):
 class Trainer:
     def __init__(self, settings):
         self.settings = settings
-        #print("11111111111111111111111111111111111111111111111111111111")
 
         self.device = torch.device("cuda" if len(self.settings.gpu_devices) else "cpu")
         self.gpu_devices = ','.join([str(id) for id in settings.gpu_devices])
@@ -40,17 +41,16 @@ class Trainer:
         self.log_path = os.path.join(self.settings.log_dir, self.settings.model_name)
 
         # data
-        train_dataset = Stanford2D3D('../data/','./splits2d3d/stanford2d3d_train.txt', self.settings.disable_color_augmentation, self.settings.disable_LR_filp_augmentation,
+        train_dataset = Stanford2D3D('../data/train/','./splits2d3d/rgb_depth_train.txt', self.settings.disable_color_augmentation, self.settings.disable_LR_filp_augmentation,
                                      self.settings.disable_yaw_rotation_augmentation, is_training=True)
                                      
-        #print("11111111111111111111111111111111111111111111111111111111")
 
         self.train_loader = DataLoader(train_dataset, self.settings.batch_size, True,
                                        num_workers=self.settings.num_workers, pin_memory=True, drop_last=True)
         num_train_samples = len(train_dataset)
         self.num_total_steps = num_train_samples // self.settings.batch_size * self.settings.num_epochs
 
-        val_dataset = Stanford2D3D('../data/','./splits2d3d/stanford2d3d_test.txt', self.settings.disable_color_augmentation, self.settings.disable_LR_filp_augmentation,
+        val_dataset = Stanford2D3D('../data/val/','./splits2d3d/rgb_depth_val.txt', self.settings.disable_color_augmentation, self.settings.disable_LR_filp_augmentation,
                                     self.settings.disable_yaw_rotation_augmentation, is_training=False)#self.dataset(self.settings.data_path, val_file_list, self.settings.height, self.settings.width,
                                    # self.settings.disable_color_augmentation, self.settings.disable_LR_filp_augmentation,
                                    # self.settings.disable_yaw_rotation_augmentation, is_training=False)
@@ -176,6 +176,32 @@ class Trainer:
                 outputs, losses = self.process_batch(inputs)
                 pred_depth = outputs["pred_depth"].detach() * inputs["val_mask"]
                 gt_depth = inputs["gt_depth"] * inputs["val_mask"]
+                #import pdb
+                #pdb.set_trace()
+                pred_depth1 = (pred_depth[0] * 512).permute(1, 2, 0).detach().cpu().numpy().astype(np.uint16)
+                pred_depth2 = (pred_depth[1] * 512).permute(1, 2, 0).detach().cpu().numpy().astype(np.uint16)
+
+                gt_depth1 = (gt_depth[0] * 512).permute(1, 2, 0).detach().cpu().numpy().astype(np.uint16)
+                gt_depth2 = (gt_depth[1] * 512).permute(1, 2, 0).detach().cpu().numpy().astype(np.uint16)
+
+                item_rate1= (outputs['item_rate'][0].permute(1, 2, 0) * 255).detach().cpu().numpy().astype(np.uint8)
+                item_rate2= (outputs['item_rate'][1].permute(1, 2, 0) * 255).detach().cpu().numpy().astype(np.uint8)
+
+                rgb1 = (inputs["rgb"][0].permute(1, 2, 0) * 255).detach().cpu().numpy().astype(np.uint8)
+                rgb2 = (inputs['rgb'][1].permute(1, 2, 0) * 255).detach().cpu().numpy().astype(np.uint8)
+
+                cv2.imwrite('./val_rgb/' + str(batch_idx* 2 + 0) + ".png", rgb1)
+                cv2.imwrite('./val_rgb/' + str(batch_idx* 2 + 1) + ".png", rgb2)
+
+                cv2.imwrite('./pred_depth/' + str(batch_idx*2 + 0) + ".png", pred_depth1)
+                cv2.imwrite('./pred_depth/' + str(batch_idx*2 + 1) + ".png", pred_depth2)
+
+                cv2.imwrite('./gt_depth/' + str(batch_idx*2 + 0) + ".png", gt_depth1)
+                cv2.imwrite('./gt_depth/' + str(batch_idx*2 + 1) + ".png", gt_depth2)
+
+                cv2.imwrite('./item_rate/' + str(batch_idx*2 + 0) + ".png", item_rate1)
+                cv2.imwrite('./item_rate/' + str(batch_idx*2 + 1) + ".png", item_rate2)
+
                 #mask = inputs["val_mask"]
                 self.evaluator.compute_eval_metrics(gt_depth, pred_depth)
 
@@ -196,6 +222,8 @@ class Trainer:
             writer.add_scalar("{}".format(l), v, self.step)
 
         for j in range(min(4, self.settings.batch_size)):  # write a maxmimum of four images
+            #item_rate = (outputs["item_rate"][j] * 255).permute(1, 2, 0).cpu().numpy().astype(np.uint8)
+            #cv2.imwrite('./' + str(self.step) + "gray_image.png", item_rate)
             writer.add_image("rgb/{}".format(j), inputs["rgb"][j].data, self.step)
             # writer.add_image("cube_rgb/{}".format(j), inputs["cube_rgb"][j].data, self.step)
             writer.add_image("gt_depth/{}".format(j),

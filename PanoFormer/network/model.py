@@ -4,7 +4,7 @@
 ## https://arxiv.org/abs/2203.09283
 ## The code is reproducted based on uformer:https://github.com/ZhendongWang6/Uformer
 """
-
+import pdb
 import torch
 import torch.nn as nn
 import torch.utils.checkpoint as checkpoint
@@ -611,9 +611,11 @@ class Panoformer(nn.Module):
         self.freezen_list=[self.lstmdecoder,self.input_proj,self.output_proj_0,self.output_proj_1,self.output_proj_2,
                            self.output_proj_3,self.encoderlayer_0,self.encoderlayer_1,self.encoderlayer_2,self.encoderlayer_3,
                            self.dowsample_0,self.dowsample_1,self.dowsample_2,self.dowsample_3]
+    
         for submodel in self.freezen_list:
             for name, param in submodel.named_parameters():
                 param.requires_grad = False
+
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
             trunc_normal_(m.weight, std=.02)
@@ -679,10 +681,12 @@ class Panoformer(nn.Module):
         item_rate = self.item_rate(deconv3)
         depth1 = self.output_proj(deconv3)
         layout_depth = inference(bon, cor, depth1).cuda()
+        #pdb.set_trace()
         depth2 = layout_depth.unsqueeze(1)
         y=depth1*item_rate+depth2*(1-item_rate)
         outputs = {}
         outputs["pred_depth"] = y
+        outputs["item_rate"]  = item_rate.detach()
         outputs["bon"]=bon
         outputs["cor"]=cor
         return outputs

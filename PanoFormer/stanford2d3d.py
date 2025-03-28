@@ -76,7 +76,8 @@ class Stanford2D3D(data.Dataset):
         inputs = {}
 
         rgb_name = os.path.join(self.root_dir, self.rgb_depth_list[idx][0])
-        #print(rgb_name)
+        #import pdb
+        #pdb.set_trace()
         rgb = cv2.imread(rgb_name)
         rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
         rgb = cv2.resize(rgb, dsize=(1024, 512), interpolation=cv2.INTER_CUBIC)
@@ -84,7 +85,7 @@ class Stanford2D3D(data.Dataset):
         depth_name = os.path.join(self.root_dir, self.rgb_depth_list[idx][1])
         gt_depth = cv2.imread(depth_name, -1)
         gt_depth = cv2.resize(gt_depth, dsize=(1024, 512), interpolation=cv2.INTER_NEAREST)
-        gt_depth = gt_depth.astype(np.float)/512
+        gt_depth = gt_depth.astype(np.float64)/512
         gt_depth[gt_depth > self.max_depth_meters+1] = self.max_depth_meters + 1
 
 
