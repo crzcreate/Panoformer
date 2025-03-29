@@ -244,6 +244,7 @@ class DepthOutputProj(nn.Module):
         B, L, C = x.shape
         H, W = self.input_resolution
         x = x.transpose(1, 2).view(B, C, H, W)
+        #pdb.set_trace()
         x = F.interpolate(x, scale_factor=2, mode='nearest')  # for 1024*512
         # x = F.pad(x, (3 // 2, 3 // 2, 0, 0), mode='circular')  # width
         # x = F.pad(x, (0, 0, 3 // 2, 3 // 2))
@@ -269,7 +270,7 @@ class RateOutputProj(nn.Module):
             self.norm = norm_layer(out_channel)
         else:
             self.norm = None
-    #这里的插值是可以理解的，因为一个点是不是物体，取决于他旁边的点的信息，如果一个小点的信息是物体，那么旁边的都很有可能是物体
+
     def forward(self, x):
         B, L, C = x.shape
         H, W = self.input_resolution
@@ -608,10 +609,13 @@ class Panoformer(nn.Module):
                                                    se_layer=se_layer, ref_point=self.ref_point256x512, flag=1)
         self.lstmdecoder=HorizonNet(use_rnn=True)
         self.apply(self._init_weights)
-        self.freezen_list=[self.lstmdecoder,self.input_proj,self.output_proj_0,self.output_proj_1,self.output_proj_2,
-                           self.output_proj_3,self.encoderlayer_0,self.encoderlayer_1,self.encoderlayer_2,self.encoderlayer_3,
-                           self.dowsample_0,self.dowsample_1,self.dowsample_2,self.dowsample_3]
-    
+        #self.freezen_list=[self.lstmdecoder,self.input_proj,self.output_proj_0,self.output_proj_1,self.output_proj_2,
+        #                   self.output_proj_3,self.encoderlayer_0,self.encoderlayer_1,self.encoderlayer_2,self.encoderlayer_3,
+        #                   self.dowsample_0,self.dowsample_1,self.dowsample_2,self.dowsample_3]
+        self.freezen_list = [self.lstmdecoder]
+
+
+
         for submodel in self.freezen_list:
             for name, param in submodel.named_parameters():
                 param.requires_grad = False
@@ -639,6 +643,7 @@ class Panoformer(nn.Module):
     def forward(self, x):
         # Input Projection
         # y = self.pre_block(x)
+        #pdb.set_trace()
         y = self.input_proj(x)
         y = self.pos_drop(y)
 
@@ -678,15 +683,16 @@ class Panoformer(nn.Module):
         deconv3 = self.decoderlayer_3(deconv3)
 
         # Output Projection
-        item_rate = self.item_rate(deconv3)
+        #item_rate = self.item_rate(deconv3)
         depth1 = self.output_proj(deconv3)
         layout_depth = inference(bon, cor, depth1).cuda()
         #pdb.set_trace()
         depth2 = layout_depth.unsqueeze(1)
-        y=depth1*item_rate+depth2*(1-item_rate)
+        y=depth1*0.8+depth2*0.1
         outputs = {}
         outputs["pred_depth"] = y
-        outputs["item_rate"]  = item_rate.detach()
+        #outputs["item_rate"]  = item_rate.detach()
+        outputs["layout_depth"] = depth2.detach()
         outputs["bon"]=bon
         outputs["cor"]=cor
         return outputs

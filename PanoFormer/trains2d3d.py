@@ -14,9 +14,9 @@ parser.add_argument("--gpu_devices", type=int, nargs="+", default=[0], help="ava
 parser.add_argument("--model_name", type=str, default="panodepth", help="folder to save the model in")
 
 # optimization settings
-parser.add_argument("--learning_rate", type=float, default=1e-4, help="learning rate")
+parser.add_argument("--learning_rate", type=float, default=1e-5, help="learning rate")
 parser.add_argument("--batch_size", type=int, default=2, help="batch size")
-parser.add_argument("--num_epochs", type=int, default=200, help="number of epochs")
+parser.add_argument("--num_epochs", type=int, default=20, help="number of epochs")
 
 # loading and logging settings
 parser.add_argument("--load_weights_dir", default='./tmp_s2d3d/panodepth/models/weights', type=str, help="folder of model to load")#, default='./tmp_abl_offset/panodepth/models/weights_49'

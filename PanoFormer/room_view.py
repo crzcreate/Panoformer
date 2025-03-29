@@ -23,20 +23,35 @@ def get_3Dpoints(dep,H,W):
 
 def view_pred_val():
     rgb_list   = get_file_names('./val_rgb')
-    depth_list = get_file_names('./pred_depth')
+    pred_depth_list   = get_file_names('./pred_depth')
+    gt_depth_list     = get_file_names('./gt_depth')
+    layout_depth_list = get_file_names('./layout_depth')
 
-    for rgb, depth in zip(rgb_list, depth_list):
+    for rgb, pred_depth, gt_depth, layout_depth in zip(rgb_list, pred_depth_list, gt_depth_list, layout_depth_list):
         pano_rgb   = cv2.imread('./val_rgb/' + rgb)
-        pano_depth = cv2.imread('./pred_depth/' + depth, -1) / 512
+        pred_pano_depth   = cv2.imread('./pred_depth/' + pred_depth, -1) / 512
+        gt_pano_depth     = cv2.imread('./gt_depth/' + gt_depth, -1) / 512
+        layout_pano_depth = cv2.imread('./layout_depth/' + layout_depth, -1) / 512
 
-        pts3d = get_3Dpoints(pano_depth, 512, 1024)
-
+        pts3d = get_3Dpoints(pred_pano_depth, 512, 1024)
+        print("current dispaly " + rgb + "'s pred pano 3d")
         pcd = op.geometry.PointCloud()
         pcd.points = op.utility.Vector3dVector(pts3d.reshape(-1,3))
         pcd.colors = op.utility.Vector3dVector(pano_rgb.reshape(-1,3)/255.)
+        op.visualization.draw_geometries([pcd],window_name='pred_pano_depth_room')
 
-        op.visualization.draw_geometries([pcd],window_name='pano_depth_room')
+        print("current dispaly " + rgb + "'s gt pano 3d")
+        gt3ds = get_3Dpoints(gt_pano_depth, 512, 1024)
+        #pcd = op.geometry.PointCloud()
+        pcd.points = op.utility.Vector3dVector(gt3ds.reshape(-1,3))
+        pcd.colors = op.utility.Vector3dVector(pano_rgb.reshape(-1,3)/255.)
+        op.visualization.draw_geometries([pcd],window_name='gt_pano_depth_room')
 
+        print("current dispaly " + rgb + "'s layout pano 3d")
+        layout3ds = get_3Dpoints(layout_pano_depth, 512, 1024)
+        pcd.points = op.utility.Vector3dVector(layout3ds.reshape(-1,3))
+        pcd.colors = op.utility.Vector3dVector(pano_rgb.reshape(-1,3)/255.)
+        op.visualization.draw_geometries([pcd],window_name='layout_pano_depth_room')
 
 
 
