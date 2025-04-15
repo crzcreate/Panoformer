@@ -252,7 +252,12 @@ class DepthOutputProj(nn.Module):
             x = self.norm(x)
         # val=torch.var(x,dim=[2,3])
         return x
+class CustomSigmoid(nn.Module):
+    def __init__(self):
+        super(CustomSigmoid, self).__init__()
 
+    def forward(self, x):
+        return 1 / (1 + torch.exp(-5*x))#先设置为5运行几个epoch看看效果
 class RateOutputProj(nn.Module):
     def __init__(self, in_channel=64, out_channel=1, kernel_size=3, stride=1, norm_layer=None, act_layer=None,
                  input_resolution=None):
@@ -260,8 +265,9 @@ class RateOutputProj(nn.Module):
         self.input_resolution = input_resolution
         self.proj = nn.Sequential(
             nn.Conv2d(in_channel, out_channel, kernel_size=3, stride=stride, padding=1),
-            nn.BatchNorm2d(out_channel),
-            nn.Sigmoid()
+            nn.BatchNorm2d(out_channel),#这个norm要不要还不清楚
+            CustomSigmoid(),
+            #nn.Sigmoid()#这里的sigmoid函数得用另一个代替，方法一：norm不要，然后sigmoid，如果还不行，那就norm加上我们自己的函数，如果再激进一点，那么就是不要norm加上我们自己的函数
         )
         if act_layer is not None:
             self.proj.add_module(act_layer(inplace=True))
@@ -300,6 +306,7 @@ class OutputProj(nn.Module):
             self.norm = norm_layer(out_channel)
         else:
             self.norm = None
+        wrap_lr_pad(self)
 
     def forward(self, x):
         B, L, C = x.shape
@@ -448,8 +455,6 @@ class Panoformer(nn.Module):
         #     nn.Conv2d(in_channels=embed_dim, out_channels=embed_dim, kernel_size=3, stride=2, padding=1),
         #     nn.GELU()
         # )
-        self.output_proj = OutputProj(in_channel=2 * embed_dim, out_channel=1, kernel_size=3, stride=1,
-                                      input_resolution=(img_size, img_size * 2))
         self.output_proj_0 = OutputProj(in_channel=2 * embed_dim, out_channel=8 * embed_dim, kernel_size=3, stride=1,
                                         input_resolution=(img_size // 2, img_size // 2 * 2))
         self.output_proj_1 = OutputProj(in_channel=4 * embed_dim, out_channel=16 * embed_dim, kernel_size=3, stride=1,
@@ -680,11 +685,16 @@ class Panoformer(nn.Module):
         depth1 = self.output_proj(deconv3)
         layout_depth = inference(bon, cor, depth1).cuda()
         depth2 = layout_depth.unsqueeze(1)
-        y=depth1*item_rate+depth2*(1-item_rate)
+        y=depth1*(1-item_rate)+depth2*item_rate#这里应该加个这个
         outputs = {}
         outputs["pred_depth"] = y
-        #outputs["bon"]=bon
-        #outputs["cor"]=cor
+        #用来看看depth1还有itemrate以及y的问题
+        # item_rate_ = np.array(item_rate.detach().cpu())
+        # max_rate=np.sum(item_rate_>0.8)/(512*1024)
+        # min_rate=np.sum(item_rate_<0.2)/(512*1024)
+        # depth1_ = np.array(depth1.detach().cpu())
+        # y_ = np.array(y.detach().cpu())
+
         return outputs
 
 class ConvCompressH(nn.Module):
