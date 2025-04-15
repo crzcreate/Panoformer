@@ -1,8 +1,8 @@
 import sys
+from shapely.geometry import Polygon
 from scipy.ndimage.filters import maximum_filter
 import torch
 from network import post_proc, panostretch
-from shapely.geometry import Polygon
 import numpy as np
 
 def find_N_peaks(signal, r=29, min_v=0.05, N=None):
@@ -47,7 +47,7 @@ def cor_2_1d(cor, H, W):
     return bon
 
 
-def layout_2_depth(cor_id,hf, h, w, return_mask=False):
+def layout_2_depth(cor_id, h, w, return_mask=False):
     # Convert corners to per-column boundary first
     # Up -pi/2,  Down pi/2
     vc, vf = cor_2_1d(cor_id, h, w)
@@ -60,8 +60,8 @@ def layout_2_depth(cor_id,hf, h, w, return_mask=False):
     vs = ((np.arange(h) + 0.5) / h - 0.5) * np.pi
     vs = np.repeat(vs[:, None], w, axis=1)  # [h, w]
 
-    # Floor-plane to depth
-    floor_h = hf+0.005
+    # Floor-plane to depth,hf的输入其实是一个偏差量，需要relu，有可能是负也有可能是正的，这样能保证输出的最终floor_h是正常的
+    floor_h = 1.6
     floor_d = np.abs(floor_h / np.sin(vs))
 
     # wall to camera distance on horizontal plane at cross camera center
@@ -84,7 +84,6 @@ def layout_2_depth(cor_id,hf, h, w, return_mask=False):
     depth[wall_mask] = wall_d[wall_mask]
     #这里的判断标准是得到的depth是否存在0
     assert (depth == 0).sum() == 0
-
     if return_mask:
         return depth, floor_mask, ceil_mask, wall_mask
     return depth
@@ -129,28 +128,171 @@ def layout_2_depth(cor_id,hf, h, w, return_mask=False):
 #     if return_mask:
 #         return depth, floor_mask, ceil_mask, wall_mask
 #     return depth
-def get_h(y_bon,depth,H,W):
-    H, W = tuple((512, 1024))
-    # y_cor_ = torch.sigmoid(y_cor_.detach().cpu())
-    # y_cor_ = np.array(y_cor_)
-    # depth = depth.detach().cpu()
-    # depth = np.array(depth)
-    # batch = depth.shape[0]
-    # depth_list = []
-    y1 = np.round(y_bon[0]).astype(int)
-    y2 = np.round(y_bon[1]).astype(int)
-    y2_idx=[(h,w)for h,w in zip(y2,np.arange(W))]
-    # y2_idx=[np.arange(W),y2]
-    depth=depth[0]
-    depth_floor=[depth[h][w] for (h,w) in y2_idx]
-    # depth_floor=[depth[h][w] for (h, w) in y1_idx]
-    y_floor=((y1-0.5)/H-0.5)*np.pi
-    hf=np.abs(depth_floor*np.sin(y_floor))
-    hf=hf.mean()
-    # if hf==0:
-    #     print(hf)
-    return hf
-def inference(y_bon_,y_cor_,depth,force_cuboid=False, force_raw=False, min_v=None, r=0.05):
+# def get_h(y_bon,depth,H,W):
+#     H, W = tuple((512, 1024))
+#     # y_cor_ = torch.sigmoid(y_cor_.detach().cpu())
+#     # y_cor_ = np.array(y_cor_)
+#     # depth = depth.detach().cpu()
+#     # depth = np.array(depth)
+#     # batch = depth.shape[0]
+#     # depth_list = []
+#     y1 = np.round(y_bon[0]).astype(int)
+#     y2 = np.round(y_bon[1]).astype(int)
+#     y2_idx=[(h,w)for h,w in zip(y2,np.arange(W))]
+#     # y2_idx=[np.arange(W),y2]
+#     depth=depth[0]
+#     depth_floor=[depth[h][w] for (h,w) in y2_idx]
+#     # depth_floor=[depth[h][w] for (h, w) in y1_idx]
+#     y_floor=((y1-0.5)/H-0.5)*np.pi
+#     hf=np.abs(depth_floor*np.sin(y_floor))
+#     hf=hf.mean()
+#     # if hf==0:
+#     #     print(hf)
+#     return hf
+# def inference(y_bon_,y_cor_,hf_,force_cuboid=False, force_raw=False, min_v=None, r=0.05):
+#     '''
+#     net   : the trained HorizonNet
+#     x     : tensor in shape [1, 3, 512, 1024]
+#     flip  : fliping testing augmentation
+#     rotate: horizontal rotation testing augmentation
+#     '''
+#     H, W = tuple((512,1024))
+#     batch = y_bon_.shape[0]
+#     y_bon_=y_bon_.detach().cpu()
+#     y_bon_=np.array(y_bon_)
+#     y_cor_=torch.sigmoid(y_cor_.detach().cpu())
+#     y_cor_ = np.array(y_cor_)
+#     hf_=hf_.detach().cpu()
+#     depth_list=[]
+#     #将输出的每个y_bon的点直接去算他对应的点的y坐标，转化到512范围，然后再找到输入的深度图对应的位置的depth，然后得到对应的h1,h2
+#     for b in range(batch):
+#         y_bon = (y_bon_[b] / np.pi + 0.5) * H - 0.5
+#         y_bon[0] = np.clip(y_bon[0], 1, H/2-1)
+#         y_bon[1] = np.clip(y_bon[1], H/2+1, H-2)
+#         y_cor = y_cor_[b, 0]
+#         hf=hf_[b]
+#         # Init floor/ceil plane 这个是将底部的高度统一化为z_mean这里是为了得到cor_id是2048×2的输出
+#         #这里必须重新定义一下，不然的话会反复利用出现循环bug
+#         z0 = 50
+#         r = 0.05
+#         min_v=None
+#         _, z1 = post_proc.np_refine_by_fix_z(*y_bon, z0)
+#         if min_v is None:
+#             min_v = 0 if force_cuboid else 0.05
+#         r = int(round(W * r / 2))
+#         N = 4 if force_cuboid else None
+#         xs_ = find_N_peaks(y_cor, r=r, min_v=min_v, N=N)[0]
+#         # Generate wall-walls
+#         cor, xy_cor = post_proc.gen_ww(xs_, y_bon[0], z0, tol=abs(0.16 * z1 / 1.6), force_cuboid=force_cuboid)
+#         if not force_cuboid:
+#             # Check valid (for fear self-intersection)
+#             xy2d = np.zeros((len(xy_cor), 2), np.float32)
+#             for i in range(len(xy_cor)):
+#                 xy2d[i, xy_cor[i]['type']] = xy_cor[i]['val']
+#                 xy2d[i, xy_cor[i - 1]['type']] = xy_cor[i - 1]['val']
+#             # try:
+#             #     Polygon(xy2d)
+#             # except ValueError as e:
+#             #     #如果创建多边形时发生 ValueError 异常，打印错误信息
+#             #     print(f"创建多边形失败：{e}")
+#             if xy2d.shape[0]<=2:
+#                 xs_ = find_N_peaks(y_cor, r=r, min_v=0, N=4)[0]
+#                 cor, xy_cor = post_proc.gen_ww(xs_, y_bon[0], z0, tol=abs(0.16 * z1 / 1.6), force_cuboid=True)
+#             elif not Polygon(xy2d).is_valid:
+#                 # print(
+#                 #     'Fail to generate valid general layout!! '
+#                 #     'Generate cuboid as fallback.')
+#                 xs_ = find_N_peaks(y_cor, r=r, min_v=0, N=4)[0]
+#                 cor, xy_cor = post_proc.gen_ww(xs_, y_bon[0], z0, tol=abs(0.16 * z1 / 1.6), force_cuboid=True)
+#         cor = np.hstack([cor, post_proc.infer_coory(cor[:, 1], z1 - z0, z0)[:, None]])
+#         # Collect corner position in equirectangular
+#         cor_id = np.zeros((len(cor)*2, 2), np.float32)
+#         for j in range(len(cor)):
+#             cor_id[j*2] = cor[j, 0], cor[j, 1]
+#             cor_id[j*2 + 1] = cor[j, 0], cor[j, 2]
+#         # 不能Normalized to [0, 1]要保留到512×1024
+#         #现在要根据这个cor_id还有根据layout得到的边界，去得到上下边界的h1和h2，然后导入layout_2_depth
+#         depth_out = layout_2_depth(cor_id,hf, H, W, return_mask=False)
+#         depth_list.append(depth_out)
+#     depth=np.stack(depth_list,axis=0)
+#     return torch.from_numpy(depth)
+
+
+
+
+
+
+# def inference(y_bon_,y_cor_,depth,force_cuboid=False, force_raw=False, min_v=None, r=0.05):
+#     '''
+#     net   : the trained HorizonNet
+#     x     : tensor in shape [1, 3, 512, 1024]
+#     flip  : fliping testing augmentation
+#     rotate: horizontal rotation testing augmentation
+#     '''
+#     H, W = tuple((512,1024))
+#     y_bon_=y_bon_.detach().cpu()
+#     y_bon_=np.array(y_bon_)
+#     y_cor_=torch.sigmoid(y_cor_.detach().cpu())
+#     y_cor_ = np.array(y_cor_)
+#     depth=depth.detach().cpu()
+#     depth=np.array(depth)
+#     batch=depth.shape[0]
+#     depth_list=[]
+#     #将输出的每个y_bon的点直接去算他对应的点的y坐标，转化到512范围，然后再找到输入的深度图对应的位置的depth，然后得到对应的h1,h2
+#     for b in range(batch):
+#         y_bon = (y_bon_[b] / np.pi + 0.5) * H - 0.5
+#         y_bon[0] = np.clip(y_bon[0], 1, H/2-1)
+#         y_bon[1] = np.clip(y_bon[1], H/2+1, H-2)
+#         y_cor = y_cor_[b, 0]
+#         depthb=depth[b]
+#         #保持疑问
+#         # hf=get_h(y_bon,depthb,H,W)
+#         # Init floor/ceil plane 这个是将底部的高度统一化为z_mean这里是为了得到cor_id是2048×2的输出
+#         #这里必须重新定义一下，不然的话会反复利用出现循环bug
+#         z0 = 50
+#         r = 0.05
+#         min_v=None
+#         _, z1 = post_proc.np_refine_by_fix_z(*y_bon, z0)
+#         if min_v is None:
+#             min_v = 0 if force_cuboid else 0.05
+#         r = int(round(W * r / 2))
+#         N = 4 if force_cuboid else None
+#         xs_ = find_N_peaks(y_cor, r=r, min_v=min_v, N=N)[0]
+#         # Generate wall-walls
+#         cor, xy_cor = post_proc.gen_ww(xs_, y_bon[0], z0, tol=abs(0.16 * z1 / 1.6), force_cuboid=force_cuboid)
+#         if not force_cuboid:
+#             # Check valid (for fear self-intersection)
+#             xy2d = np.zeros((len(xy_cor), 2), np.float32)
+#             for i in range(len(xy_cor)):
+#                 xy2d[i, xy_cor[i]['type']] = xy_cor[i]['val']
+#                 xy2d[i, xy_cor[i - 1]['type']] = xy_cor[i - 1]['val']
+#             # try:
+#             #     Polygon(xy2d)
+#             # except ValueError as e:
+#             #     #如果创建多边形时发生 ValueError 异常，打印错误信息
+#             #     print(f"创建多边形失败：{e}")
+#             if xy2d.shape[0]<=2:
+#                 xs_ = find_N_peaks(y_cor, r=r, min_v=0, N=4)[0]
+#                 cor, xy_cor = post_proc.gen_ww(xs_, y_bon[0], z0, tol=abs(0.16 * z1 / 1.6), force_cuboid=True)
+#             elif not Polygon(xy2d).is_valid:
+#                 # print(
+#                 #     'Fail to generate valid general layout!! '
+#                 #     'Generate cuboid as fallback.')
+#                 xs_ = find_N_peaks(y_cor, r=r, min_v=0, N=4)[0]
+#                 cor, xy_cor = post_proc.gen_ww(xs_, y_bon[0], z0, tol=abs(0.16 * z1 / 1.6), force_cuboid=True)
+#         cor = np.hstack([cor, post_proc.infer_coory(cor[:, 1], z1 - z0, z0)[:, None]])
+#         # Collect corner position in equirectangular
+#         cor_id = np.zeros((len(cor)*2, 2), np.float32)
+#         for j in range(len(cor)):
+#             cor_id[j*2] = cor[j, 0], cor[j, 1]
+#             cor_id[j*2 + 1] = cor[j, 0], cor[j, 2]
+#         # 不能Normalized to [0, 1]要保留到512×1024
+#         #现在要根据这个cor_id还有根据layout得到的边界，去得到上下边界的h1和h2，然后导入layout_2_depth
+#         depth_out = layout_2_depth(cor_id,hf, H, W, return_mask=False)
+#         depth_list.append(depth_out)
+#     depth=np.stack(depth_list,axis=0)
+#     return torch.from_numpy(depth)
+def inference(y_bon_,y_cor_,force_cuboid=False, force_raw=False, min_v=None, r=0.05):
     '''
     net   : the trained HorizonNet
     x     : tensor in shape [1, 3, 512, 1024]
@@ -162,17 +304,13 @@ def inference(y_bon_,y_cor_,depth,force_cuboid=False, force_raw=False, min_v=Non
     y_bon_=np.array(y_bon_)
     y_cor_=torch.sigmoid(y_cor_.detach().cpu())
     y_cor_ = np.array(y_cor_)
-    depth=depth.detach().cpu()
-    depth=np.array(depth)
-    batch=depth.shape[0]
+    batch=y_bon_.shape[0]
     depth_list=[]
     #将输出的每个y_bon的点直接去算他对应的点的y坐标，转化到512范围，然后再找到输入的深度图对应的位置的depth，然后得到对应的h1,h2
     for i in range(batch):
         y_bon = (y_bon_[i] / np.pi + 0.5) * H - 0.5
         y_bon[0] = np.clip(y_bon[0], 1, H/2-1)
         y_bon[1] = np.clip(y_bon[1], H/2+1, H-2)
-        depthi=depth[i]
-        hf=get_h(y_bon,depthi,H,W)
         # Init floor/ceil plane 这个是将底部的高度统一化为z_mean这里是为了得到cor_id是2048×2的输出
         z0 = 50
         _, z1 = post_proc.np_refine_by_fix_z(*y_bon, z0)
@@ -184,8 +322,9 @@ def inference(y_bon_,y_cor_,depth,force_cuboid=False, force_raw=False, min_v=Non
             cor_id[j*2] = cor[j, 0], cor[j, 1]
             cor_id[j*2 + 1] = cor[j, 0], cor[j, 2]
         # 不能Normalized to [0, 1]要保留到512×1024
-        #现在要根据这个cor_id还有根据layout得到的边界，去得到上下边界的h1和h2，然后导入layout_2_depth
-        depth_out = layout_2_depth(cor_id,hf, H, W, return_mask=False)
+        #现在要根据这个cor_id还有根据layout得到的边界，然后导入layout_2_depth
+        depth_out = layout_2_depth(cor_id, H, W, return_mask=False)
+        depth_out=depth_out+0.5#这里要加多少的余量才能保证墙体学的很好，得测试一下
         depth_list.append(depth_out)
     depth=np.stack(depth_list,axis=0)
     return torch.from_numpy(depth)
