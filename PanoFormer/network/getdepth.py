@@ -324,7 +324,11 @@ def inference(y_bon_,y_cor_,force_cuboid=False, force_raw=False, min_v=None, r=0
         # 不能Normalized to [0, 1]要保留到512×1024
         #现在要根据这个cor_id还有根据layout得到的边界，然后导入layout_2_depth
         depth_out = layout_2_depth(cor_id, H, W, return_mask=False)
-        depth_out=depth_out+0.5#这里要加多少的余量才能保证墙体学的很好，得测试一下
+        depth_out=depth_out+0.5
+        #depth+1
+        #depth*1.1+0.8
+        #depth*1.5 可能会更好
+        #这里要加多少的余量才能保证墙体学的很好，得测试一下1.depth+1,然后depth1的输出变成gelu，这样会不会好点,目前看来可能加1不太行，乘以1.2说不定可以
         depth_list.append(depth_out)
     depth=np.stack(depth_list,axis=0)
     return torch.from_numpy(depth)
